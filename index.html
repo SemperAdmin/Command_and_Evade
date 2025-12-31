@@ -144,6 +144,27 @@
             box-shadow: 0 0 30px rgba(148, 0, 211, 0.5);
         }
 
+        /* Milestone notification styles */
+        .achievement.milestone-notification {
+            background: rgba(139, 0, 0, 0.9);
+            border-color: #ff4444;
+        }
+
+        .milestone-notification .milestone-title {
+            font-weight: bold;
+            color: #ff4444;
+        }
+
+        .milestone-notification .milestone-rank {
+            font-size: 14px;
+            margin-top: 5px;
+        }
+
+        .milestone-notification .milestone-description {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
         /* Ball count indicator in HUD */
         #ballCount {
             color: #ff4444;
@@ -657,6 +678,18 @@
                 this.highDistance = 100;
                 this.criticalDistance = 60;
 
+                // Ball spawn position constants
+                this.BALL_SPAWN_MIN_DISTANCE = 200;
+                this.BALL_SPAWN_RANDOM_DISTANCE = 100;
+                this.SCREEN_PADDING = 50;
+
+                // Audio context (reused for all sounds)
+                try {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                } catch (e) {
+                    this.audioContext = null; // Audio not supported
+                }
+
                 // Military ranks based on survival time (Full USMC progression)
                 this.ranks = [
                     // Enlisted Ranks
@@ -922,20 +955,12 @@
              * Update threat level system with precise cursor feedback (all balls)
              */
             updateThreatLevel() {
-                // Find closest ball distance
-                const dx = this.mousePosition.x - this.ballPosition.x;
-                const dy = this.mousePosition.y - this.ballPosition.y;
-                let distance = Math.sqrt(dx * dx + dy * dy);
-
-                // Check milestone balls for closer threat
-                this.balls.forEach(ballData => {
-                    const bdx = this.mousePosition.x - ballData.position.x;
-                    const bdy = this.mousePosition.y - ballData.position.y;
-                    const bDistance = Math.sqrt(bdx * bdx + bdy * bdy);
-                    if (bDistance < distance) {
-                        distance = bDistance;
-                    }
-                });
+                // Find closest ball distance using Math.hypot() and reduce()
+                const initialDist = Math.hypot(this.mousePosition.x - this.ballPosition.x, this.mousePosition.y - this.ballPosition.y);
+                const distance = this.balls.reduce((minDist, ballData) => {
+                    const bDistance = Math.hypot(this.mousePosition.x - ballData.position.x, this.mousePosition.y - ballData.position.y);
+                    return Math.min(minDist, bDistance);
+                }, initialDist);
 
                 // Remove all threat classes
                 this.gameContainer.classList.remove('cursor-safe', 'cursor-warning', 'cursor-danger', 'cursor-critical');
@@ -980,9 +1005,11 @@
              */
             updateRank() {
                 let currentRank = this.ranks[0];
-                for (let rank of this.ranks) {
-                    if (this.gameTime >= rank.time) {
-                        currentRank = rank;
+                this.currentRankIndex = 0;
+                for (let i = 0; i < this.ranks.length; i++) {
+                    if (this.gameTime >= this.ranks[i].time) {
+                        currentRank = this.ranks[i];
+                        this.currentRankIndex = i;
                     } else {
                         break;
                     }
@@ -1063,53 +1090,39 @@
              * Play achievement sound
              */
             playAchievementSound() {
-                try {
-                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                if (!this.audioContext) return;
 
-                    // Create a triumphant achievement sound
-                    const playTone = (frequency, startTime, duration) => {
-                        const oscillator = audioContext.createOscillator();
-                        const gainNode = audioContext.createGain();
+                // Create a triumphant achievement sound
+                const playTone = (frequency, startTime, duration) => {
+                    const oscillator = this.audioContext.createOscillator();
+                    const gainNode = this.audioContext.createGain();
 
-                        oscillator.connect(gainNode);
-                        gainNode.connect(audioContext.destination);
+                    oscillator.connect(gainNode);
+                    gainNode.connect(this.audioContext.destination);
 
-                        oscillator.frequency.setValueAtTime(frequency, startTime);
-                        gainNode.gain.setValueAtTime(0.2, startTime);
-                        gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+                    oscillator.frequency.setValueAtTime(frequency, startTime);
+                    gainNode.gain.setValueAtTime(0.2, startTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
 
-                        oscillator.start(startTime);
-                        oscillator.stop(startTime + duration);
-                    };
+                    oscillator.start(startTime);
+                    oscillator.stop(startTime + duration);
+                };
 
-                    // Play achievement chord
-                    const now = audioContext.currentTime;
-                    playTone(523, now, 0.5);      // C
-                    playTone(659, now + 0.1, 0.5); // E
-                    playTone(784, now + 0.2, 0.7); // G
-                } catch (e) {
-                    // Audio not supported
-                }
+                // Play achievement chord
+                const now = this.audioContext.currentTime;
+                playTone(523, now, 0.5);      // C
+                playTone(659, now + 0.1, 0.5); // E
+                playTone(784, now + 0.2, 0.7); // G
             }
 
             /**
              * Check for rank milestones and spawn new balls
              */
             checkMilestones() {
-                // Find current rank index
-                let currentRankIndex = 0;
-                for (let i = 0; i < this.ranks.length; i++) {
-                    if (this.gameTime >= this.ranks[i].time) {
-                        currentRankIndex = i;
-                    } else {
-                        break;
-                    }
-                }
-
-                // If we've advanced to a new rank, spawn a ball
-                if (currentRankIndex > this.lastMilestoneRank && currentRankIndex > 0) {
-                    this.spawnMilestoneBall(currentRankIndex);
-                    this.lastMilestoneRank = currentRankIndex;
+                // Use stored currentRankIndex from updateRank() to avoid redundant calculation
+                if (this.currentRankIndex > this.lastMilestoneRank && this.currentRankIndex > 0) {
+                    this.spawnMilestoneBall(this.currentRankIndex);
+                    this.lastMilestoneRank = this.currentRankIndex;
                 }
             }
 
@@ -1129,13 +1142,13 @@
 
                 // Random spawn position (away from player)
                 const spawnAngle = Math.random() * Math.PI * 2;
-                const spawnDistance = 200 + Math.random() * 100;
+                const spawnDistance = this.BALL_SPAWN_MIN_DISTANCE + Math.random() * this.BALL_SPAWN_RANDOM_DISTANCE;
                 const spawnX = this.mousePosition.x + Math.cos(spawnAngle) * spawnDistance;
                 const spawnY = this.mousePosition.y + Math.sin(spawnAngle) * spawnDistance;
 
                 // Clamp to screen bounds
-                const x = Math.max(50, Math.min(window.innerWidth - 50, spawnX));
-                const y = Math.max(50, Math.min(window.innerHeight - 50, spawnY));
+                const x = Math.max(this.SCREEN_PADDING, Math.min(window.innerWidth - this.SCREEN_PADDING, spawnX));
+                const y = Math.max(this.SCREEN_PADDING, Math.min(window.innerHeight - this.SCREEN_PADDING, spawnY));
 
                 const ballData = {
                     element: ballElement,
@@ -1245,13 +1258,11 @@
              */
             showMilestoneNotification(rankName) {
                 const msgDiv = document.createElement('div');
-                msgDiv.className = 'achievement';
-                msgDiv.style.background = 'rgba(139, 0, 0, 0.9)';
-                msgDiv.style.borderColor = '#ff4444';
+                msgDiv.className = 'achievement milestone-notification';
                 msgDiv.innerHTML = `
-                    <div style="font-weight: bold; color: #ff4444;">⚠️ WARNING - NEW HOSTILE</div>
-                    <div style="font-size: 14px; margin-top: 5px;">Promoted to ${rankName}!</div>
-                    <div style="font-size: 12px; opacity: 0.8;">Additional threat inbound!</div>
+                    <div class="milestone-title">⚠️ WARNING - NEW HOSTILE</div>
+                    <div class="milestone-rank">Promoted to ${rankName}!</div>
+                    <div class="milestone-description">Additional threat inbound!</div>
                 `;
 
                 document.body.appendChild(msgDiv);
@@ -1270,27 +1281,24 @@
              * Play ball spawn warning sound
              */
             playBallSpawnSound() {
-                try {
-                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    const now = audioContext.currentTime;
+                if (!this.audioContext) return;
 
-                    // Warning klaxon sound
-                    for (let i = 0; i < 2; i++) {
-                        const osc = audioContext.createOscillator();
-                        const gain = audioContext.createGain();
-                        osc.connect(gain);
-                        gain.connect(audioContext.destination);
+                const now = this.audioContext.currentTime;
 
-                        osc.frequency.setValueAtTime(600, now + i * 0.2);
-                        osc.frequency.setValueAtTime(400, now + i * 0.2 + 0.1);
-                        gain.gain.setValueAtTime(0.15, now + i * 0.2);
-                        gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.2 + 0.15);
+                // Warning klaxon sound
+                for (let i = 0; i < 2; i++) {
+                    const osc = this.audioContext.createOscillator();
+                    const gain = this.audioContext.createGain();
+                    osc.connect(gain);
+                    gain.connect(this.audioContext.destination);
 
-                        osc.start(now + i * 0.2);
-                        osc.stop(now + i * 0.2 + 0.15);
-                    }
-                } catch (e) {
-                    // Audio not supported
+                    osc.frequency.setValueAtTime(600, now + i * 0.2);
+                    osc.frequency.setValueAtTime(400, now + i * 0.2 + 0.1);
+                    gain.gain.setValueAtTime(0.15, now + i * 0.2);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.2 + 0.15);
+
+                    osc.start(now + i * 0.2);
+                    osc.stop(now + i * 0.2 + 0.15);
                 }
             }
 
@@ -1298,28 +1306,25 @@
              * Play special achievement sound
              */
             playSpecialAchievementSound() {
-                try {
-                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    const now = audioContext.currentTime;
+                if (!this.audioContext) return;
 
-                    // Triumphant fanfare
-                    const notes = [523, 659, 784, 1047]; // C, E, G, C octave
-                    notes.forEach((freq, i) => {
-                        const osc = audioContext.createOscillator();
-                        const gain = audioContext.createGain();
-                        osc.connect(gain);
-                        gain.connect(audioContext.destination);
+                const now = this.audioContext.currentTime;
 
-                        osc.frequency.setValueAtTime(freq, now + i * 0.15);
-                        gain.gain.setValueAtTime(0.2, now + i * 0.15);
-                        gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.15 + 0.4);
+                // Triumphant fanfare
+                const notes = [523, 659, 784, 1047]; // C, E, G, C octave
+                notes.forEach((freq, i) => {
+                    const osc = this.audioContext.createOscillator();
+                    const gain = this.audioContext.createGain();
+                    osc.connect(gain);
+                    gain.connect(this.audioContext.destination);
 
-                        osc.start(now + i * 0.15);
-                        osc.stop(now + i * 0.15 + 0.4);
-                    });
-                } catch (e) {
-                    // Audio not supported
-                }
+                    osc.frequency.setValueAtTime(freq, now + i * 0.15);
+                    gain.gain.setValueAtTime(0.2, now + i * 0.15);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.15 + 0.4);
+
+                    osc.start(now + i * 0.15);
+                    osc.stop(now + i * 0.15 + 0.4);
+                });
             }
 
             /**
@@ -1365,42 +1370,40 @@
              * Play mission failed sound
              */
             playMissionFailedSound() {
-                try {
-                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    
-                    // Create dramatic failure sound
-                    const oscillator = audioContext.createOscillator();
-                    const gainNode = audioContext.createGain();
-                    
-                    oscillator.connect(gainNode);
-                    gainNode.connect(audioContext.destination);
-                    
-                    oscillator.frequency.setValueAtTime(400, audioContext.currentTime);
-                    oscillator.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 1.5);
-                    
-                    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 1.5);
-                    
-                    oscillator.start(audioContext.currentTime);
-                    oscillator.stop(audioContext.currentTime + 1.5);
-                    
-                    // Add alarm-like beeps
-                    for (let i = 0; i < 3; i++) {
-                        const beepOsc = audioContext.createOscillator();
-                        const beepGain = audioContext.createGain();
-                        
-                        beepOsc.connect(beepGain);
-                        beepGain.connect(audioContext.destination);
-                        
-                        beepOsc.frequency.setValueAtTime(800, audioContext.currentTime + 0.3 + (i * 0.3));
-                        beepGain.gain.setValueAtTime(0.2, audioContext.currentTime + 0.3 + (i * 0.3));
-                        beepGain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5 + (i * 0.3));
-                        
-                        beepOsc.start(audioContext.currentTime + 0.3 + (i * 0.3));
-                        beepOsc.stop(audioContext.currentTime + 0.5 + (i * 0.3));
-                    }
-                } catch (e) {
-                    // Audio not supported
+                if (!this.audioContext) return;
+
+                const now = this.audioContext.currentTime;
+
+                // Create dramatic failure sound
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(this.audioContext.destination);
+
+                oscillator.frequency.setValueAtTime(400, now);
+                oscillator.frequency.exponentialRampToValueAtTime(100, now + 1.5);
+
+                gainNode.gain.setValueAtTime(0.3, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 1.5);
+
+                oscillator.start(now);
+                oscillator.stop(now + 1.5);
+
+                // Add alarm-like beeps
+                for (let i = 0; i < 3; i++) {
+                    const beepOsc = this.audioContext.createOscillator();
+                    const beepGain = this.audioContext.createGain();
+
+                    beepOsc.connect(beepGain);
+                    beepGain.connect(this.audioContext.destination);
+
+                    beepOsc.frequency.setValueAtTime(800, now + 0.3 + (i * 0.3));
+                    beepGain.gain.setValueAtTime(0.2, now + 0.3 + (i * 0.3));
+                    beepGain.gain.exponentialRampToValueAtTime(0.01, now + 0.5 + (i * 0.3));
+
+                    beepOsc.start(now + 0.3 + (i * 0.3));
+                    beepOsc.stop(now + 0.5 + (i * 0.3));
                 }
             }
 
