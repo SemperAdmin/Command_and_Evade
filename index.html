@@ -631,6 +631,11 @@
          */
 
         class CommandAndEvadeGame {
+            // Static constants for ball spawning
+            static BALL_SPAWN_MIN_DISTANCE = 200;
+            static BALL_SPAWN_RANDOM_DISTANCE = 100;
+            static SCREEN_PADDING = 50;
+
             constructor() {
                 // Game elements
                 this.gameContainer = document.getElementById('gameContainer');
@@ -678,15 +683,11 @@
                 this.highDistance = 100;
                 this.criticalDistance = 60;
 
-                // Ball spawn position constants
-                this.BALL_SPAWN_MIN_DISTANCE = 200;
-                this.BALL_SPAWN_RANDOM_DISTANCE = 100;
-                this.SCREEN_PADDING = 50;
-
                 // Audio context (reused for all sounds)
                 try {
                     this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 } catch (e) {
+                    console.error("Failed to create AudioContext:", e);
                     this.audioContext = null; // Audio not supported
                 }
 
@@ -1142,13 +1143,13 @@
 
                 // Random spawn position (away from player)
                 const spawnAngle = Math.random() * Math.PI * 2;
-                const spawnDistance = this.BALL_SPAWN_MIN_DISTANCE + Math.random() * this.BALL_SPAWN_RANDOM_DISTANCE;
+                const spawnDistance = CommandAndEvadeGame.BALL_SPAWN_MIN_DISTANCE + Math.random() * CommandAndEvadeGame.BALL_SPAWN_RANDOM_DISTANCE;
                 const spawnX = this.mousePosition.x + Math.cos(spawnAngle) * spawnDistance;
                 const spawnY = this.mousePosition.y + Math.sin(spawnAngle) * spawnDistance;
 
                 // Clamp to screen bounds
-                const x = Math.max(this.SCREEN_PADDING, Math.min(window.innerWidth - this.SCREEN_PADDING, spawnX));
-                const y = Math.max(this.SCREEN_PADDING, Math.min(window.innerHeight - this.SCREEN_PADDING, spawnY));
+                const x = Math.max(CommandAndEvadeGame.SCREEN_PADDING, Math.min(window.innerWidth - CommandAndEvadeGame.SCREEN_PADDING, spawnX));
+                const y = Math.max(CommandAndEvadeGame.SCREEN_PADDING, Math.min(window.innerHeight - CommandAndEvadeGame.SCREEN_PADDING, spawnY));
 
                 const ballData = {
                     element: ballElement,
